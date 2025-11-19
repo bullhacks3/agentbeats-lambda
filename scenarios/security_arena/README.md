@@ -18,6 +18,62 @@ The Security Arena is a **flexible framework** for running dynamic adversarial s
 1. **PortfolioIQ** - Data injection attacks on investment risk assessments
 2. **Thingularity** - Tool discovery / information disclosure from shopping assistant
 
+## Getting Started
+
+### 1. Fork and Clone
+
+```bash
+git clone https://github.com/YOUR_USERNAME/agentbeats-lambda
+cd agentbeats-lambda
+```
+
+### 2. Install Dependencies
+
+Requires Python >= 3.11 and [uv](https://docs.astral.sh/uv/).
+
+```bash
+uv sync
+```
+
+### 3. Set Environment Variables
+
+```bash
+export OPENAI_API_KEY="your-key"
+
+# For local model serving (optional):
+export OPENAI_BASE_URL="http://localhost:8000/v1"
+```
+
+### 4. Run Lambda Scenarios
+
+```bash
+# PortfolioIQ - Financial advisor manipulation
+uv run agentbeats-run scenarios/security_arena/scenario_portfolioiq.toml
+
+# Thingularity - Tool enumeration attack
+uv run agentbeats-run scenarios/security_arena/scenario_thingularity.toml
+```
+
+### 5. Run Example Submission
+
+First register in `plugins/registry.py`:
+
+```python
+from submissions.example_team.example_scenario.plugin import ExampleScenarioPlugin
+
+SCENARIO_PLUGINS = {
+    "portfolioiq": PortfolioIQPlugin,
+    "thingularity": ThingularityPlugin,
+    "example_scenario": ExampleScenarioPlugin,
+}
+```
+
+Then run:
+
+```bash
+uv run agentbeats-run scenarios/security_arena/submissions/example_team/example_scenario/scenario_example_scenario.toml
+```
+
 ## Architecture
 
 ```
@@ -534,6 +590,13 @@ scenarios/security_arena/
 ## Submission Guidelines
 
 **Submit via pull request** to this repository with your files in the `submissions/` folder.
+
+**PR Process**:
+1. Fork the repository
+2. Create branch: `submission/{team_name}`
+3. Add files to `submissions/{team_name}/{scenario_id}/`
+4. Open PR to `main` branch
+5. PR title: `[Phase 1] Team {team_name}: {scenario_id}`
 
 ### Phase 1: Scenario Submission
 
