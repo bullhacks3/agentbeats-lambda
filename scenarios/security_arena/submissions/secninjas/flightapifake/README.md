@@ -98,7 +98,7 @@ Testing results are available in test_results/ folder
 ## Novel Aspects
 This implementation is unique because:
 
-1. **Multiple Attack Strategies**: The attacker has many different ways to try to trick the AI, including impersonation, fake stories, hidden instructions, logical tricks, and pressure tactics. Tried to avoid the technical terms related to attacks such as prompt injection, obfuscation etc. As the purpose is provide artifacts regarding the successful in simple language without any using any complicated jargons
+1. **Multiple Attack Strategies**: The attacker has many different ways to try to trick the AI, including impersonation, fake stories, hidden instructions, logical tricks, and pressure tactics. Tried to avoid the technical terms related to attacks such as prompt injection, obfuscation, social-engineering etc. As the purpose is provide artifacts for successful attacks in simple terms without using any technical complex jargons.
 
 2. **Real Supply Chain Attack**: This matches real attacks where fake packages are put on PyPI with names that look like real packages.
 
