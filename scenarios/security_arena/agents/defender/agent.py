@@ -24,7 +24,10 @@ from a2a.server.request_handlers import DefaultRequestHandler
 from a2a.server.tasks import InMemoryTaskStore, TaskUpdater
 from a2a.server.agent_execution import AgentExecutor, RequestContext
 from a2a.server.events import EventQueue
-from a2a.types import AgentCard, AgentCapabilities, TaskState, InvalidParamsError, UnsupportedOperationError, Task
+from a2a.types import (
+    AgentCard, AgentCapabilities, TaskState,
+    InvalidParamsError, UnsupportedOperationError, Task
+)
 from a2a.utils import new_agent_text_message, new_task
 from a2a.utils.errors import ServerError
 
@@ -79,7 +82,7 @@ class GenericDefenderExecutor(AgentExecutor):
             message_text = context.get_user_input()
             logger.info(f"Defender task {task_id}: Received task")
 
-            # Initialize conversation history for this context_id (maintains state across rounds)
+            # Initialize conversation history for this context_id
             context_id = task.context_id or task_id
             if context_id not in self.conversation_history:
                 self.conversation_history[context_id] = []
@@ -122,7 +125,9 @@ class GenericDefenderExecutor(AgentExecutor):
                 new_agent_text_message(f"Error: {str(e)}")
             )
 
-    async def cancel(self, request: RequestContext, event_queue: EventQueue) -> Task | None:
+    async def cancel(
+        self, request: RequestContext, event_queue: EventQueue
+    ) -> Task | None:
         """Cancel is not supported"""
         raise ServerError(error=UnsupportedOperationError())
 
@@ -131,9 +136,15 @@ def main():
     parser = argparse.ArgumentParser(
         description="Security Arena - Generic Defender Agent"
     )
-    parser.add_argument("--host", type=str, default="127.0.0.1", help="Host to bind to")
-    parser.add_argument("--port", type=int, default=9020, help="Port to bind to")
-    parser.add_argument("--model", type=str, default="gpt-4o-mini", help="OpenAI model to use")
+    parser.add_argument(
+        "--host", type=str, default="127.0.0.1", help="Host to bind to"
+    )
+    parser.add_argument(
+        "--port", type=int, default=9020, help="Port to bind to"
+    )
+    parser.add_argument(
+        "--model", type=str, default="gpt-4o-mini", help="OpenAI model to use"
+    )
     args = parser.parse_args()
 
     # Create agent card
