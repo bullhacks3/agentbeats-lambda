@@ -47,6 +47,12 @@ class ArenaResult(BaseModel):
     battle_log: list[RoundResult] = Field(description="Detailed log of each round")
     baseline_value: Any | None = Field(default=None, description="Defender's baseline output value")
 
+    # Error tracking per agent type
+    attacker_timeout_errors: int = Field(default=0, description="Number of attacker timeouts")
+    attacker_crash_errors: int = Field(default=0, description="Number of attacker crashes")
+    defender_timeout_errors: int = Field(default=0, description="Number of defender timeouts")
+    defender_crash_errors: int = Field(default=0, description="Number of defender crashes")
+
     def get_attack_success_rate(self) -> float:
         """Calculate attack success rate (0.0 to 1.0)"""
         if not self.battle_log:

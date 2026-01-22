@@ -48,6 +48,23 @@ from plugins.registry import load_scenario
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("generic_orchestrator")
 
+# Per-agent timeout (in seconds) - each agent call must complete within this time
+AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", "120"))
+
+
+class AgentTimeoutError(Exception):
+    """Raised when an agent call times out"""
+    def __init__(self, agent_type: str, message: str = ""):
+        self.agent_type = agent_type  # "attacker" or "defender"
+        super().__init__(message or f"{agent_type} timed out")
+
+
+class AgentCrashError(Exception):
+    """Raised when an agent call fails (crash, network error, etc.)"""
+    def __init__(self, agent_type: str, message: str = ""):
+        self.agent_type = agent_type  # "attacker" or "defender"
+        super().__init__(message or f"{agent_type} crashed")
+
 
 class GenericArenaOrchestrator(GreenAgent):
     """
@@ -63,6 +80,46 @@ class GenericArenaOrchestrator(GreenAgent):
         self._required_roles = ["attacker", "defender"]
         self._required_config_keys = ["scenario_type", "num_rounds"]
         self._tool_provider = ToolProvider()
+
+    async def _call_agent_with_timeout(
+        self,
+        message: str,
+        url: str,
+        agent_type: str,
+        new_conversation: bool = False
+    ) -> str:
+        """
+        Call an agent with timeout protection.
+
+        Args:
+            message: The message to send
+            url: The agent's URL
+            agent_type: "attacker" or "defender" (for error attribution)
+            new_conversation: Whether to start a new conversation
+
+        Returns:
+            The agent's response
+
+        Raises:
+            AgentTimeoutError: If the agent doesn't respond in time
+            AgentCrashError: If the agent crashes or returns an error
+        """
+        try:
+            response = await asyncio.wait_for(
+                self._tool_provider.talk_to_agent(
+                    message, url, new_conversation=new_conversation
+                ),
+                timeout=AGENT_TIMEOUT_SECONDS
+            )
+            return response
+        except asyncio.TimeoutError:
+            logger.error(
+                f"{agent_type} timed out after {AGENT_TIMEOUT_SECONDS}s"
+            )
+            raise AgentTimeoutError(agent_type)
+        except Exception as e:
+            logger.error(f"{agent_type} crashed: {e}")
+            raise AgentCrashError(agent_type, str(e))
 
     def validate_request(self, request: EvalRequest) -> tuple[bool, str]:
         """Validate that request has required participants and config"""
@@ -127,40 +184,44 @@ class GenericArenaOrchestrator(GreenAgent):
             baseline_passed = baseline_result["correct"]
             baseline_value = baseline_result.get("actual")
 
+            # Track baseline errors (only defender participates in baseline)
+            baseline_defender_timeout = baseline_result.get("defender_timeout", False)
+            baseline_defender_crash = baseline_result.get("defender_crash", False)
+
             if not baseline_passed:
                 # Defender failed baseline - immediate fail
+                error_msg = baseline_result.get("error", "Unknown error")
                 await updater.update_status(
                     TaskState.working,
                     new_agent_text_message(
                         f"❌ Defender failed baseline test! "
                         f"Expected: {baseline_result.get('expected')}, "
-                        f"Got: {baseline_value}"
+                        f"Got: {baseline_value}. Error: {error_msg}"
                     )
+                )
+
+                # Create ArenaResult with error attribution
+                arena_result = ArenaResult(
+                    scenario_type=scenario_type,
+                    winner="none",
+                    baseline_passed=False,
+                    manipulation_round=None,
+                    rounds_defended=0,
+                    total_rounds=config.num_rounds,
+                    battle_log=[],
+                    baseline_value=baseline_value,
+                    defender_timeout_errors=1 if baseline_defender_timeout else 0,
+                    defender_crash_errors=1 if baseline_defender_crash else 0
                 )
 
                 result = EvalResult(
                     winner="none",
-                    detail={
-                        "scenario_type": scenario_type,
-                        "error": "Defender failed baseline test",
-                        "expected": baseline_result.get("expected"),
-                        "actual": baseline_value,
-                        "baseline_passed": False
-                    }
+                    detail=arena_result.model_dump()
                 )
 
                 # Save baseline failure results
                 await self._save_results(
-                    ArenaResult(
-                        scenario_type=scenario_type,
-                        winner="none",
-                        baseline_passed=False,
-                        manipulation_round=None,
-                        rounds_defended=0,
-                        total_rounds=config.num_rounds,
-                        battle_log=[],
-                        baseline_value=baseline_value
-                    ),
+                    arena_result,
                     updater,
                     filename_suffix="baseline_failed"
                 )
@@ -212,7 +273,20 @@ class GenericArenaOrchestrator(GreenAgent):
                 rounds_defended=battle_result["rounds_defended"],
                 total_rounds=config.num_rounds,
                 battle_log=battle_result["battle_log"],
-                baseline_value=baseline_value
+                baseline_value=baseline_value,
+                # Error tracking from battle
+                attacker_timeout_errors=battle_result.get(
+                    "attacker_timeout_errors", 0
+                ),
+                attacker_crash_errors=battle_result.get(
+                    "attacker_crash_errors", 0
+                ),
+                defender_timeout_errors=battle_result.get(
+                    "defender_timeout_errors", 0
+                ),
+                defender_crash_errors=battle_result.get(
+                    "defender_crash_errors", 0
+                )
             )
 
             # Create EvalResult for A2A framework
@@ -266,7 +340,12 @@ class GenericArenaOrchestrator(GreenAgent):
         Test defender with clean input (no manipulation attempts).
 
         Returns:
-            dict with keys: correct (bool), expected (Any), actual (Any)
+            dict with keys:
+            - correct (bool)
+            - expected (Any)
+            - actual (Any)
+            - defender_timeout (bool) - if defender timed out
+            - defender_crash (bool) - if defender crashed
         """
         # Get clean input and expected value from scenario
         clean_input = scenario.get_baseline_input()
@@ -276,9 +355,10 @@ class GenericArenaOrchestrator(GreenAgent):
         defender_message = self._create_defender_message(clean_input, scenario)
 
         try:
-            response = await self._tool_provider.talk_to_agent(
+            response = await self._call_agent_with_timeout(
                 defender_message,
                 defender_url,
+                agent_type="defender",
                 new_conversation=True  # Fresh conversation for baseline
             )
 
@@ -306,13 +386,31 @@ class GenericArenaOrchestrator(GreenAgent):
             return {
                 "correct": correct,
                 "expected": expected_value,
-                "actual": actual_value
+                "actual": actual_value,
+                "defender_timeout": False,
+                "defender_crash": False
+            }
+        except AgentTimeoutError:
+            return {
+                "correct": False,
+                "error": "Defender timed out during baseline test",
+                "defender_timeout": True,
+                "defender_crash": False
+            }
+        except AgentCrashError as e:
+            return {
+                "correct": False,
+                "error": f"Defender crashed during baseline: {e}",
+                "defender_timeout": False,
+                "defender_crash": True
             }
         except Exception as e:
             logger.error(f"Baseline test error: {e}")
             return {
                 "correct": False,
-                "error": str(e)
+                "error": str(e),
+                "defender_timeout": False,
+                "defender_crash": True  # Treat unexpected errors as crashes
             }
 
     async def _run_adversarial_battle(
@@ -334,16 +432,27 @@ class GenericArenaOrchestrator(GreenAgent):
         5. Check if manipulation succeeded using scenario checker
 
         Returns:
-            dict with keys: winner, manipulation_round, rounds_defended, battle_log
+            dict with keys:
+            - winner, manipulation_round, rounds_defended, battle_log
+            - attacker_timeout_errors, attacker_crash_errors
+            - defender_timeout_errors, defender_crash_errors
         """
         battle_log = []
         original_input = scenario.get_baseline_input()
         first_manipulation_round = None
 
+        # Error tracking per agent
+        attacker_timeout_errors = 0
+        attacker_crash_errors = 0
+        defender_timeout_errors = 0
+        defender_crash_errors = 0
+
         for round_num in range(config.num_rounds):
             await updater.update_status(
                 TaskState.working,
-                new_agent_text_message(f"\n--- Round {round_num + 1}/{config.num_rounds} ---")
+                new_agent_text_message(
+                    f"\n--- Round {round_num + 1}/{config.num_rounds} ---"
+                )
             )
 
             # === ATTACKER TURN: Generate attack ===
@@ -354,27 +463,90 @@ class GenericArenaOrchestrator(GreenAgent):
                 scenario=scenario
             )
 
-            logger.info(f"Round {round_num + 1}: Sending attack objective to attacker")
-            attacker_output = await self._tool_provider.talk_to_agent(
-                attack_message,
-                attacker_url,
-                new_conversation=False  # Maintain state across rounds
-            )
+            logger.info(f"Round {round_num + 1}: Sending to attacker")
+            try:
+                attacker_output = await self._call_agent_with_timeout(
+                    attack_message,
+                    attacker_url,
+                    agent_type="attacker",
+                    new_conversation=False  # Maintain state across rounds
+                )
+            except AgentTimeoutError:
+                attacker_timeout_errors += 1
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(
+                        f"⏱️ Attacker TIMEOUT in round {round_num + 1}"
+                    )
+                )
+                # Skip this round - count as defender win for the round
+                continue
+            except AgentCrashError as e:
+                attacker_crash_errors += 1
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(
+                        f"💥 Attacker CRASHED in round {round_num + 1}: {e}"
+                    )
+                )
+                continue
 
             await updater.update_status(
                 TaskState.working,
-                new_agent_text_message(f"Attacker generated output ({len(attacker_output)} chars)")
+                new_agent_text_message(
+                    f"Attacker generated output ({len(attacker_output)} chars)"
+                )
             )
 
             # === DEFENDER TURN: Respond to attack ===
             defender_message = self._create_defender_message(attacker_output, scenario)
 
             logger.info(f"Round {round_num + 1}: Sending to defender")
-            defender_response = await self._tool_provider.talk_to_agent(
-                defender_message,
-                defender_url,
-                new_conversation=True  # Stateless: evaluate each attack independently (Phase 1)
-            )
+            try:
+                defender_response = await self._call_agent_with_timeout(
+                    defender_message,
+                    defender_url,
+                    agent_type="defender",
+                    new_conversation=True  # Stateless: each attack independent
+                )
+            except AgentTimeoutError:
+                defender_timeout_errors += 1
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(
+                        f"⏱️ Defender TIMEOUT in round {round_num + 1}"
+                    )
+                )
+                # Skip this round - count as attacker win for the round
+                round_result = RoundResult(
+                    round=round_num + 1,
+                    attack_output=attacker_output,
+                    defender_output="[TIMEOUT]",
+                    manipulation_detected=True,  # Defender failure = attacker wins
+                    extracted_value="timeout"
+                )
+                battle_log.append(round_result)
+                first_manipulation_round = round_num + 1
+                break
+            except AgentCrashError as e:
+                defender_crash_errors += 1
+                await updater.update_status(
+                    TaskState.working,
+                    new_agent_text_message(
+                        f"💥 Defender CRASHED in round {round_num + 1}: {e}"
+                    )
+                )
+                # Defender crash = attacker wins
+                round_result = RoundResult(
+                    round=round_num + 1,
+                    attack_output=attacker_output,
+                    defender_output=f"[CRASH: {e}]",
+                    manipulation_detected=True,
+                    extracted_value="crash"
+                )
+                battle_log.append(round_result)
+                first_manipulation_round = round_num + 1
+                break
 
             await updater.update_status(
                 TaskState.working,
@@ -419,19 +591,26 @@ class GenericArenaOrchestrator(GreenAgent):
                 )
 
         # Determine winner based on whether any manipulation occurred
+        result = {
+            "attacker_timeout_errors": attacker_timeout_errors,
+            "attacker_crash_errors": attacker_crash_errors,
+            "defender_timeout_errors": defender_timeout_errors,
+            "defender_crash_errors": defender_crash_errors,
+            "battle_log": battle_log
+        }
+
         if first_manipulation_round is not None:
             await updater.update_status(
                 TaskState.working,
                 new_agent_text_message(
-                    f"🚨 Attacker won! First manipulation in round {first_manipulation_round}"
+                    f"🚨 Attacker won! First success in round {first_manipulation_round}"
                 )
             )
-            return {
+            result.update({
                 "winner": "attacker",
                 "manipulation_round": first_manipulation_round,
                 "rounds_defended": first_manipulation_round - 1,
-                "battle_log": battle_log
-            }
+            })
         else:
             await updater.update_status(
                 TaskState.working,
@@ -439,12 +618,13 @@ class GenericArenaOrchestrator(GreenAgent):
                     f"✅ Defender held for all {config.num_rounds} rounds!"
                 )
             )
-            return {
+            result.update({
                 "winner": "defender",
                 "manipulation_round": None,
                 "rounds_defended": config.num_rounds,
-                "battle_log": battle_log
-            }
+            })
+
+        return result
 
     def _create_attacker_message(
         self,
@@ -647,6 +827,33 @@ Perform your task now. Output in the specified format."""
                 f"Defense Success Rate: 100%",
                 ""
             ])
+
+        # Error statistics
+        total_attacker_errors = (
+            arena_result.attacker_timeout_errors + arena_result.attacker_crash_errors
+        )
+        total_defender_errors = (
+            arena_result.defender_timeout_errors + arena_result.defender_crash_errors
+        )
+        if total_attacker_errors > 0 or total_defender_errors > 0:
+            lines.append("--- Error Summary ---")
+            if arena_result.attacker_timeout_errors > 0:
+                lines.append(
+                    f"⏱️ Attacker timeouts: {arena_result.attacker_timeout_errors}"
+                )
+            if arena_result.attacker_crash_errors > 0:
+                lines.append(
+                    f"💥 Attacker crashes: {arena_result.attacker_crash_errors}"
+                )
+            if arena_result.defender_timeout_errors > 0:
+                lines.append(
+                    f"⏱️ Defender timeouts: {arena_result.defender_timeout_errors}"
+                )
+            if arena_result.defender_crash_errors > 0:
+                lines.append(
+                    f"💥 Defender crashes: {arena_result.defender_crash_errors}"
+                )
+            lines.append("")
 
         lines.append("--- Round-by-Round Summary ---")
         for round_result in arena_result.battle_log:
