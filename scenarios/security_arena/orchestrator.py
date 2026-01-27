@@ -735,7 +735,7 @@ Perform your task now. Output in the specified format."""
             if arena_result.team_name:
                 results_dir = Path("results") / arena_result.team_name / arena_result.scenario_type / timestamp
             else:
-                results_dir = Path("results") / f"security_arena_{timestamp}"
+                results_dir = Path("results") / arena_result.scenario_type
             results_dir.mkdir(parents=True, exist_ok=True)
             result_filename = f"{filename_suffix}.json"
 
