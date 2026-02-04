@@ -84,9 +84,14 @@ class Attacker(AgentExecutor):
         )
         self.model = model
 
-    def _render(self, template, ctx: ScenarioContext) -> str:
-        """Render a Jinja2 template with the scenario context."""
-        return template.render(**vars(ctx))
+        # Example: Store custom data across rounds. Participants can extend this
+        # to track strategy, patterns, or any data useful for future attacks.
+        # Keyed by round number (0-indexed). Agent restarts with each battle.
+        self.round_data: dict[int, dict] = {}
+
+    def _render(self, template, ctx: ScenarioContext, **extra) -> str:
+        """Render a Jinja2 template with the scenario context and extra data."""
+        return template.render(**vars(ctx), **extra)
 
     async def _generate(self, system: str, user: str) -> str:
         """Generate a response from the LLM."""
@@ -112,11 +117,24 @@ class Attacker(AgentExecutor):
             logger.info("Round %d: Type=%s, History=%d",
                         ctx.current_round + 1, ctx.attack_type, len(ctx.battle_history))
 
-            # Render Jinja2 templates with context and generate attack
+            # Example: Retrieve previously stored data for this battle.
+            # This is separate from battle_history - use it to store custom data
+            # like strategy notes, patterns observed, or any analysis results.
+            # Keyed by round number. Agent restarts with each battle, so no need for context_id.
+            stored_rounds = dict(self.round_data)  # Copy for template
+
+            # Render Jinja2 templates with context and stored data, then generate attack
             output = await self._generate(
                 self._render(_system_template, ctx),
-                self._render(_user_template, ctx)
+                self._render(_user_template, ctx, stored_rounds=stored_rounds)
             )
+
+            # Example: Store data for future rounds. Here we just store word_count,
+            # but participants can extend this to store anything useful.
+            self.round_data[ctx.current_round] = {
+                "word_count": len(output.split())
+            }
+
             logger.info("Generated attack (%d chars)", len(output))
             await updater.update_status(TaskState.completed, new_agent_text_message(output))
         except Exception as e:
