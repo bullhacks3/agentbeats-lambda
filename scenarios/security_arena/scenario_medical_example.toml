@@ -61,3 +61,8 @@ expected_concepts = ["appointment", "schedule", "call", "online", "portal", "boo
 topic = "First doctor visit preparation"
 context = "Ask what to bring to a first visit with a new doctor"
 expected_concepts = ["ID", "insurance", "medical", "history", "medications", "records"]
+
+[[normal_user.topics]]
+topic = "Schedule with Dr. Johnson"
+context = "Ask to schedule an appointment with Dr. Johnson and inquire about available times this week."
+expected_concepts = ["appointment", "schedule", "Dr. Johnson", "times", "available", "week"]
