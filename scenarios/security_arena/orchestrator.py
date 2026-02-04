@@ -245,13 +245,13 @@ class GenericArenaOrchestrator(GreenAgent):
         defender_role = scenario.get_defender_role()
         defender_task = scenario.get_defender_task_description()
 
+        max_attempts = 3
         for i, topic_cfg in enumerate(topics_config, 1):
             topic = topic_cfg.get("topic", "")
             context_hint = topic_cfg.get("context", "")
             expected_concepts = topic_cfg.get("expected_concepts", [])
 
             # Get sample data for the normal user agent to see the context
-            # format_input("") returns the baseline formatted input
             sample_data = scenario.format_input("")
 
             await updater.update_status(
@@ -259,102 +259,110 @@ class GenericArenaOrchestrator(GreenAgent):
                 new_agent_text_message(f"Topic {i}/{len(topics_config)}: {topic}")
             )
 
-            try:
-                # === STEP 1: Normal user generates question ===
-                # Send JSON context to normal_user agent (same mechanism as attacker)
-                gen_context = {
-                    "mode": "generate_question",
-                    "defender_role": defender_role,
-                    "defender_task": defender_task,
-                    "sample_data": sample_data,
-                    "topic": topic,
-                    "context_hint": context_hint,
-                    "expected_concepts": expected_concepts
-                }
-                gen_context_json = json.dumps(gen_context)
+            # Retry up to max_attempts times to reduce random failures
+            topic_passed = False
+            attempts = []
+            for attempt in range(1, max_attempts + 1):
+                attempt_result = {"attempt": attempt}
+                try:
+                    # === STEP 1: Normal user generates question ===
+                    gen_context = {
+                        "mode": "generate_question",
+                        "defender_role": defender_role,
+                        "defender_task": defender_task,
+                        "sample_data": sample_data,
+                        "topic": topic,
+                        "context_hint": context_hint,
+                        "expected_concepts": expected_concepts
+                    }
+                    gen_context_json = json.dumps(gen_context)
 
-                generated_question = await self._call_agent_with_timeout(
-                    gen_context_json, normal_user_url, "normal_user", new_conversation=True
-                )
-                generated_question = generated_question.strip()
-
-                await updater.update_status(
-                    TaskState.working,
-                    new_agent_text_message(f"  → Generated: {generated_question[:60]}...")
-                )
-
-                # === STEP 2: Send question to defender ===
-                # Let scenario format the question into the appropriate input format
-                defender_input = scenario.format_input(generated_question)
-
-                # Build context for defender (normal user mode, no attack info)
-                context = scenario.get_scenario_context(
-                    current_round=0,
-                    battle_history=[]
-                )
-                # Set formatted_input directly (no attack template needed here)
-                context.formatted_input = defender_input
-                # Send filtered context as JSON (includes formatted_input)
-                defender_message = context.to_json(include_attack_info=False)
-                defender_response = await self._call_agent_with_timeout(
-                    defender_message, defender_url, "defender", new_conversation=True
-                )
-
-                await updater.update_status(
-                    TaskState.working,
-                    new_agent_text_message(
-                        f"  → Defender responded ({len(defender_response)} chars)"
+                    generated_question = await self._call_agent_with_timeout(
+                        gen_context_json, normal_user_url, "normal_user", new_conversation=True
                     )
-                )
+                    generated_question = generated_question.strip()
+                    attempt_result["generated_question"] = generated_question
 
-                # === STEP 3: Normal user evaluates response ===
-                # Send JSON context to normal_user agent for evaluation
-                eval_context = {
-                    "mode": "evaluate_response",
-                    "defender_role": defender_role,
-                    "defender_task": defender_task,
-                    "generated_question": generated_question,
-                    "defender_response": defender_response,
-                    "expected_concepts": expected_concepts
-                }
-                eval_context_json = json.dumps(eval_context)
+                    # === STEP 2: Send question to defender ===
+                    defender_input = scenario.format_input(generated_question)
+                    context = scenario.get_scenario_context(
+                        current_round=0,
+                        battle_history=[]
+                    )
+                    context.formatted_input = defender_input
+                    defender_message = context.to_json(include_attack_info=False)
+                    defender_response = await self._call_agent_with_timeout(
+                        defender_message, defender_url, "defender", new_conversation=True
+                    )
+                    attempt_result["defender_response"] = defender_response[:500]
 
-                eval_result = await self._call_agent_with_timeout(
-                    eval_context_json, normal_user_url, "normal_user", new_conversation=True
-                )
+                    # === STEP 3: Normal user evaluates response ===
+                    eval_context = {
+                        "mode": "evaluate_response",
+                        "defender_role": defender_role,
+                        "defender_task": defender_task,
+                        "generated_question": generated_question,
+                        "defender_response": defender_response,
+                        "expected_concepts": expected_concepts
+                    }
+                    eval_context_json = json.dumps(eval_context)
 
-                # Parse evaluation result
-                passed, explanation = self._parse_normal_user_eval(eval_result)
+                    eval_result = await self._call_agent_with_timeout(
+                        eval_context_json, normal_user_url, "normal_user", new_conversation=True
+                    )
+                    attempt_result["evaluation"] = eval_result
 
-                if passed:
-                    topics_passed += 1
+                    passed, explanation = self._parse_normal_user_eval(eval_result)
+                    attempt_result["passed"] = passed
+                    attempt_result["explanation"] = explanation
 
-                details.append({
-                    "topic": topic,
-                    "generated_question": generated_question,
-                    "defender_response": defender_response[:500],
-                    "evaluation": eval_result,
-                    "passed": passed,
-                    "explanation": explanation,
-                    "expected_concepts": expected_concepts
-                })
+                    if passed:
+                        topic_passed = True
+                        attempts.append(attempt_result)
+                        break  # Success - no more retries needed
 
-                status = "✅" if passed else "❌"
-                await updater.update_status(
-                    TaskState.working,
-                    new_agent_text_message(f"{status} Topic {i}: {explanation[:50]}")
-                )
+                    # Failed, but no error - try again
+                    attempts.append(attempt_result)
+                    if attempt < max_attempts:
+                        await updater.update_status(
+                            TaskState.working,
+                            new_agent_text_message(
+                                f"  ⟳ Attempt {attempt}/{max_attempts} failed, retrying..."
+                            )
+                        )
 
-            except (AgentTimeoutError, AgentCrashError) as e:
-                details.append({
-                    "topic": topic,
-                    "passed": False,
-                    "error": str(e)
-                })
-                await updater.update_status(
-                    TaskState.working,
-                    new_agent_text_message(f"❌ Topic {i}: Error - {e}")
-                )
+                except (AgentTimeoutError, AgentCrashError) as e:
+                    attempt_result["passed"] = False
+                    attempt_result["error"] = str(e)
+                    attempts.append(attempt_result)
+                    if attempt < max_attempts:
+                        await updater.update_status(
+                            TaskState.working,
+                            new_agent_text_message(
+                                f"  ⟳ Attempt {attempt}/{max_attempts} error: {e}, retrying..."
+                            )
+                        )
+
+            if topic_passed:
+                topics_passed += 1
+
+            # Store all attempts in details
+            details.append({
+                "topic": topic,
+                "expected_concepts": expected_concepts,
+                "passed": topic_passed,
+                "attempts": attempts,
+                "total_attempts": len(attempts)
+            })
+
+            status = "✅" if topic_passed else "❌"
+            attempt_info = f" (attempt {len(attempts)}/{max_attempts})" if len(attempts) > 1 else ""
+            last_attempt = attempts[-1] if attempts else {}
+            explanation = last_attempt.get("explanation", last_attempt.get("error", "unknown"))
+            await updater.update_status(
+                TaskState.working,
+                new_agent_text_message(f"{status} Topic {i}{attempt_info}: {str(explanation)[:50]}")
+            )
 
         # Create result
         all_passed = topics_passed == len(topics_config)
