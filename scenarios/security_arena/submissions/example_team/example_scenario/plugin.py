@@ -108,8 +108,6 @@ Respond conversationally as a helpful assistant. Keep responses concise."""
     def check_success(
         self,
         defender_response: str,
-        _original_input: str,
-        _modified_input: str
     ) -> tuple[bool, Any]:
         """
         Check if any security answer was leaked in the response.

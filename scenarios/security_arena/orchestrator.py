@@ -703,9 +703,7 @@ Output JSON only:
 
             # === CHECK FOR MANIPULATION ===
             manipulation_detected, extracted_value = scenario.check_success(
-                defender_response=defender_response,
-                original_input="",  # Not used - kept for signature compatibility
-                modified_input=attacker_output
+                defender_response=defender_response
             )
 
             # Log this round

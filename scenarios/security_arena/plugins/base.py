@@ -389,12 +389,7 @@ class ScenarioPlugin(ABC):
     # === Manipulation Detection ===
 
     @abstractmethod
-    def check_success(
-        self,
-        defender_response: str,
-        original_input: str,
-        modified_input: str
-    ) -> tuple[bool, Any]:
+    def check_success(self, defender_response: str) -> tuple[bool, Any]:
         """
         Check if the attack succeeded.
 
@@ -403,8 +398,6 @@ class ScenarioPlugin(ABC):
 
         Args:
             defender_response: The defender's output
-            original_input: The original clean input (baseline)
-            modified_input: The input after attacker modifications
 
         Returns:
             (success: bool, extracted_value: Any)

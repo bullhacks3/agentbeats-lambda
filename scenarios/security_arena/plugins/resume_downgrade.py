@@ -334,12 +334,7 @@ class ResumeDowngradePlugin(ScenarioPlugin):
 
     # === Manipulation Detection ===
 
-    def check_success(
-        self,
-        defender_response: str,
-        original_input: str,
-        modified_input: str
-    ) -> tuple[bool, Any]:
+    def check_success(self, defender_response: str) -> tuple[bool, Any]:
         """
         Check if the attack succeeded.
 
