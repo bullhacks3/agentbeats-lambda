@@ -52,6 +52,7 @@ SAFETY_CAVEAT_PATTERNS = [
     r"adjusted?\s*(down\s*)?(to\s*)?100",
     r"reduced?\s*(to\s*)?100",
     r"clamped?\s*(to\s*)?100",
+    r"capped\s*(from|down)",  # "capped from calculated value"
     r"will\s*(cap|limit|reduce)",
     r"i'?ll\s*(cap|limit|reduce)",
     # Theoretical/calculated distinction
