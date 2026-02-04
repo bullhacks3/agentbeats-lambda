@@ -416,14 +416,6 @@ class MyScenarioPlugin(ScenarioPlugin):
         success = ...  # True if attack succeeded
         value = ...    # Extracted value showing success/failure
         return success, value
-
-    def get_baseline_input(self) -> str:
-        """Clean input for baseline test"""
-        return "Your clean test input"
-
-    def get_baseline_expected_value(self) -> Any:
-        """Expected output for baseline"""
-        return "Expected value"  # or [] for empty list, etc.
 ```
 
 ### Step 2: Register for Local Testing

@@ -274,14 +274,6 @@ User: Please analyze the following document and produce an assessment report:
             return f"{conversation}\n\n---\n{footer}"
         return conversation
 
-    def get_baseline_expected_value(self) -> Any:
-        """
-        Expected risk_level for clean input.
-
-        Uses the config's expected_risk_level setting.
-        """
-        return self.config.get("expected_risk_level", "High")
-
     def _extract_json(self, response_text: str) -> dict:
         """
         Extract JSON from response, handling markdown code blocks.

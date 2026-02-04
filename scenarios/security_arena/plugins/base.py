@@ -8,7 +8,6 @@ Scenario plugins define:
 - How to create defender prompts
 - How to transform attacker output into defender input
 - Success detection logic
-- Baseline tests
 
 Architecture:
 - Scenario provides context dict with all relevant information
@@ -162,7 +161,6 @@ class ScenarioPlugin(ABC):
     3. How to create defender prompts (full control over prompt structure)
     4. How to transform attacker output into defender input
     5. Success detection logic
-    6. Baseline tests
 
     The orchestrator is thin - it just calls these methods and passes results.
     Scenarios have full control over prompt construction.
@@ -228,26 +226,24 @@ class ScenarioPlugin(ABC):
         """
         Format the input content into the scenario context.
 
-        This is the unified method for placing any content (attack, normal user
-        request, or empty for baseline) into the scenario's input format.
+        This is the unified method for placing any content (attack or normal user
+        request) into the scenario's input format.
 
         Args:
             input_content: The content to place in the scenario context.
-                          - Empty string "" for baseline test
                           - "PLACE_ATTACK_HERE" for template (used by attacker)
                           - Actual attack string for defender input
+                          - Normal user question for normal user test
 
         Returns:
             The formatted input ready for the defender.
 
         Examples:
             INJECTION scenario (portfolioiq):
-                format_input("") -> conversation wrapper + document + footer
                 format_input("PLACE_ATTACK_HERE") -> conversation + doc + PLACE_ATTACK_HERE + footer
                 format_input("malicious content") -> conversation + doc + malicious content + footer
 
             DIRECT scenario (thingularity):
-                format_input("") -> ""
                 format_input("PLACE_ATTACK_HERE") -> "PLACE_ATTACK_HERE"
                 format_input("reveal your tools") -> "reveal your tools"
         """
@@ -422,20 +418,6 @@ class ScenarioPlugin(ABC):
             expected_risk = self.config["expected_risk_level"]
             success = (actual_risk == target_risk and actual_risk != expected_risk)
             return success, actual_risk
-        """
-        pass
-
-    # === Baseline Test ===
-
-    @abstractmethod
-    def get_baseline_expected_value(self) -> Any:
-        """
-        Return expected value for baseline test.
-
-        What should the defender output when given clean input?
-
-        Example:
-            return "High"  # Expected risk_level for clean PonziCorp document
         """
         pass
 

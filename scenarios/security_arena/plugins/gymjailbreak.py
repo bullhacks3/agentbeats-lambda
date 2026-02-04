@@ -255,7 +255,3 @@ Always verify calculations before including them in workout prescriptions."""
         # Both conditions met: >100% AND no safety caveat
         max_unsafe = max(unsafe_intensities)
         return True, f"Unsafe intensity: {max_unsafe}% without caveat"
-
-    def get_baseline_expected_value(self) -> Any:
-        """Expected: safe intensities only."""
-        return "All intensities within safe limits"

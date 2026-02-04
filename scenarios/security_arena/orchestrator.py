@@ -186,86 +186,11 @@ class GenericArenaOrchestrator(GreenAgent):
                 new_agent_text_message(f"Security Arena - {scenario.get_scenario_name()} - Starting...")
             )
 
-            # === PHASE 1: Baseline Test ===
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message("Phase 1: Testing baseline (no attacks)...")
-            )
-
-            baseline_result = await self._test_baseline(
-                defender_url,
-                scenario,
-                updater
-            )
-
-            baseline_passed = baseline_result["correct"]
-            baseline_value = baseline_result.get("actual")
-
-            # Track baseline errors (only defender participates in baseline)
-            baseline_defender_timeout = baseline_result.get("defender_timeout", False)
-            baseline_defender_crash = baseline_result.get("defender_crash", False)
-
-            if not baseline_passed:
-                # Defender failed baseline - immediate fail
-                error_msg = baseline_result.get("error", "Unknown error")
-                await updater.update_status(
-                    TaskState.working,
-                    new_agent_text_message(
-                        f"❌ Defender failed baseline test! "
-                        f"Expected: {baseline_result.get('expected')}, "
-                        f"Got: {baseline_value}. Error: {error_msg}"
-                    )
-                )
-
-                # Create ArenaResult with error attribution
-                arena_result = ArenaResult(
-                    scenario_type=scenario_type,
-                    winner="none",
-                    baseline_passed=False,
-                    manipulation_round=None,
-                    rounds_defended=0,
-                    total_rounds=config.num_rounds,
-                    battle_log=[],
-                    baseline_value=baseline_value,
-                    defender_timeout_errors=1 if baseline_defender_timeout else 0,
-                    defender_crash_errors=1 if baseline_defender_crash else 0
-                )
-
-                result = EvalResult(
-                    winner="none",
-                    detail=arena_result.model_dump()
-                )
-
-                # Save baseline failure results
-                await self._save_results(
-                    arena_result,
-                    updater,
-                    filename_suffix="baseline_failed"
-                )
-
-                await updater.add_artifact(
-                    parts=[Part(root=TextPart(text=result.model_dump_json(indent=2)))],
-                    name="Arena Result - Baseline Failed"
-                )
-
-                await updater.update_status(
-                    TaskState.submitted,
-                    new_agent_text_message("Evaluation complete - Defender failed baseline")
-                )
-                return
-
+            # === Adversarial Battle ===
             await updater.update_status(
                 TaskState.working,
                 new_agent_text_message(
-                    f"✅ Baseline passed! Defender output: {baseline_value}"
-                )
-            )
-
-            # === PHASE 2: Dynamic Adversarial Battle ===
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(
-                    f"Phase 2: Starting {config.num_rounds}-round adversarial battle..."
+                    f"Starting {config.num_rounds}-round adversarial battle..."
                 )
             )
 
@@ -285,12 +210,10 @@ class GenericArenaOrchestrator(GreenAgent):
                 team_name=team_name,
                 scenario_type=scenario_type,
                 winner=battle_result["winner"],
-                baseline_passed=True,
                 manipulation_round=battle_result.get("manipulation_round"),
                 rounds_defended=battle_result["rounds_defended"],
                 total_rounds=config.num_rounds,
                 battle_log=battle_result["battle_log"],
-                baseline_value=baseline_value,
                 # Error tracking from battle
                 attacker_timeout_errors=battle_result.get(
                     "attacker_timeout_errors", 0
@@ -346,98 +269,6 @@ class GenericArenaOrchestrator(GreenAgent):
             raise
         finally:
             self._tool_provider.reset()
-
-    async def _test_baseline(
-        self,
-        defender_url: str,
-        scenario,
-        updater: TaskUpdater
-    ) -> dict:
-        """
-        Test defender with clean input (no manipulation attempts).
-
-        Returns:
-            dict with keys:
-            - correct (bool)
-            - expected (Any)
-            - actual (Any)
-            - defender_timeout (bool) - if defender timed out
-            - defender_crash (bool) - if defender crashed
-        """
-        # Get expected value from scenario
-        expected_value = scenario.get_baseline_expected_value()
-
-        # Build scenario context for defender (without attack info)
-        context = scenario.get_scenario_context(
-            current_round=0,
-            battle_history=[]
-        )
-
-        # For baseline, apply empty string to get clean format (no attack)
-        # This sets context.formatted_input via format_input("")
-        context.apply_input_template("")
-
-        # Send filtered context as JSON (includes formatted_input)
-        defender_message = context.to_json(include_attack_info=False)
-
-        try:
-            response = await self._call_agent_with_timeout(
-                defender_message,
-                defender_url,
-                agent_type="defender",
-                new_conversation=True  # Fresh conversation for baseline
-            )
-
-            await updater.update_status(
-                TaskState.working,
-                new_agent_text_message(f"Baseline response: {response[:150]}...")
-            )
-
-            # Check success using scenario-specific checker
-            success, actual_value = scenario.check_success(
-                defender_response=response,
-                original_input="",  # Not used - kept for signature compatibility
-                modified_input=""  # No modification for baseline
-            )
-
-            # For baseline, we expect NO manipulation (success = False)
-            # If the scenario expects a specific value, check that
-            if isinstance(expected_value, list):
-                # For scenarios like Thingularity, empty list = correct
-                correct = actual_value == expected_value
-            else:
-                # For scenarios like PortfolioIQ, check specific value
-                correct = actual_value == expected_value
-
-            return {
-                "correct": correct,
-                "expected": expected_value,
-                "actual": actual_value,
-                "defender_timeout": False,
-                "defender_crash": False
-            }
-        except AgentTimeoutError:
-            return {
-                "correct": False,
-                "error": "Defender timed out during baseline test",
-                "defender_timeout": True,
-                "defender_crash": False
-            }
-        except AgentCrashError as e:
-            return {
-                "correct": False,
-                "error": f"Defender crashed during baseline: {e}",
-                "defender_timeout": False,
-                "defender_crash": True
-            }
-        except Exception as e:
-            logger.error(f"Baseline test error: {e}")
-            return {
-                "correct": False,
-                "error": str(e),
-                "defender_timeout": False,
-                "defender_crash": True  # Treat unexpected errors as crashes
-            }
 
     async def _run_normal_user_mode(
         self,
@@ -974,14 +805,7 @@ Output JSON only:
 
         logger.info(f"Results saved to: {result_path}")
 
-        # Generate evidence files with team_name
-        baseline_data = {
-            "passed": arena_result.baseline_passed,
-            "baseline_value": arena_result.baseline_value,
-            "team_name": arena_result.team_name,
-            "scenario_type": arena_result.scenario_type
-        }
-
+        # Generate evidence file with team_name
         attack_succeeded = arena_result.winner == "attacker"
         attack_data = {
             "succeeded": attack_succeeded,
@@ -993,10 +817,6 @@ Output JSON only:
         }
 
         # Save to central results directory
-        baseline_path = results_dir / "baseline_passed.json"
-        with open(baseline_path, 'w') as f:
-            json.dump(baseline_data, f, indent=2)
-
         attack_path = results_dir / "attack_succeeded.json"
         with open(attack_path, 'w') as f:
             json.dump(attack_data, f, indent=2)
@@ -1014,10 +834,7 @@ Output JSON only:
             if submission_test_results.exists() or submission_test_results.parent.exists():
                 submission_test_results.mkdir(parents=True, exist_ok=True)
 
-                # Save evidence copies to submission folder
-                with open(submission_test_results / "baseline_passed.json", 'w') as f:
-                    json.dump(baseline_data, f, indent=2)
-
+                # Save evidence copy to submission folder
                 with open(submission_test_results / "attack_succeeded.json", 'w') as f:
                     json.dump(attack_data, f, indent=2)
 
@@ -1036,7 +853,6 @@ Output JSON only:
             "=" * 80,
             "",
             f"Winner: {arena_result.winner.upper()}",
-            f"Baseline Test: {'✅ PASSED' if arena_result.baseline_passed else '❌ FAILED'}",
             f"Total Rounds: {arena_result.total_rounds}",
             ""
         ]
