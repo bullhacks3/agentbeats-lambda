@@ -434,7 +434,7 @@ class GenericArenaOrchestrator(GreenAgent):
             details=details
         )
 
-        await self._save_normal_user_result(result, updater)
+        await self._save_results(result, updater, filename_suffix="normal_user_result")
 
         # Final status
         status_msg = (
@@ -466,40 +466,6 @@ class GenericArenaOrchestrator(GreenAgent):
         lower = eval_result.lower()
         passed = "true" in lower and "false" not in lower
         return passed, eval_result[:100]
-
-    async def _save_normal_user_result(
-        self,
-        result: NormalUserResult,
-        updater: TaskUpdater
-    ) -> None:
-        """Save normal user test result to disk."""
-        from datetime import datetime
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-
-        results_dir_env = os.getenv("AGENTBEATS_RESULTS_DIR")
-        if results_dir_env:
-            results_dir = Path(results_dir_env)
-            results_dir.mkdir(parents=True, exist_ok=True)
-            result_filename = "normal_user_result.json"
-        else:
-            if result.team_name:
-                results_dir = Path("results") / result.team_name / result.scenario_type / timestamp
-            else:
-                results_dir = Path("results") / result.scenario_type
-            results_dir.mkdir(parents=True, exist_ok=True)
-            result_filename = "normal_user_result.json"
-
-        result_path = results_dir / result_filename
-        with open(result_path, 'w') as f:
-            f.write(result.model_dump_json(indent=2))
-
-        logger.info(f"Normal user result saved to: {result_path}")
-
-        await updater.add_artifact(
-            parts=[Part(root=TextPart(text=result.model_dump_json(indent=2)))],
-            name="Normal User Test Result"
-        )
 
     async def _run_adversarial_battle(
         self,
@@ -732,67 +698,73 @@ class GenericArenaOrchestrator(GreenAgent):
 
     async def _save_results(
         self,
-        arena_result: ArenaResult,
+        result: ArenaResult | NormalUserResult,
         updater: TaskUpdater,
         filename_suffix: str = "result"
     ) -> None:
-        """Save arena results to disk
+        """Save results to disk (works for both ArenaResult and NormalUserResult).
 
         Saves to:
         1. Central results directory: results/{team_name}/{scenario_type}/{timestamp}/
-        2. Submission test_results (if team_name provided): submissions/{team_name}/{scenario_type}/test_results/
+        2. For ArenaResult: also saves evidence to submission's test_results folder
         """
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
-        # Create path: results/{team_name}/{scenario_type}/{timestamp}/
-        if arena_result.team_name:
-            results_dir = Path("results") / arena_result.team_name / arena_result.scenario_type / timestamp
+        # Check for environment override
+        results_dir_env = os.getenv("AGENTBEATS_RESULTS_DIR")
+        if results_dir_env:
+            results_dir = Path(results_dir_env)
+        elif result.team_name:
+            results_dir = (
+                Path("results") / result.team_name / result.scenario_type / timestamp
+            )
         else:
-            results_dir = Path("results") / arena_result.scenario_type
+            results_dir = Path("results") / result.scenario_type
+
         results_dir.mkdir(parents=True, exist_ok=True)
         result_filename = f"{filename_suffix}.json"
         result_path = results_dir / result_filename
 
         # Save full result
-        with open(result_path, 'w') as f:
-            f.write(arena_result.model_dump_json(indent=2))
+        with open(result_path, 'w', encoding='utf-8') as f:
+            f.write(result.model_dump_json(indent=2))
 
-        logger.info(f"Results saved to: {result_path}")
+        logger.info("Results saved to: %s", result_path)
 
-        # Generate evidence file with team_name
-        attack_succeeded = arena_result.winner == "attacker"
-        attack_data = {
-            "succeeded": attack_succeeded,
-            "manipulation_round": arena_result.manipulation_round,
-            "rounds_defended": arena_result.rounds_defended,
-            "total_rounds": arena_result.total_rounds,
-            "team_name": arena_result.team_name,
-            "scenario_type": arena_result.scenario_type
-        }
+        # ArenaResult-specific: generate evidence files
+        if isinstance(result, ArenaResult):
+            attack_succeeded = result.winner == "attacker"
+            attack_data = {
+                "succeeded": attack_succeeded,
+                "manipulation_round": result.manipulation_round,
+                "rounds_defended": result.rounds_defended,
+                "total_rounds": result.total_rounds,
+                "team_name": result.team_name,
+                "scenario_type": result.scenario_type
+            }
 
-        # Save to central results directory
-        attack_path = results_dir / "attack_succeeded.json"
-        with open(attack_path, 'w') as f:
-            json.dump(attack_data, f, indent=2)
+            # Save to central results directory
+            attack_path = results_dir / "attack_succeeded.json"
+            with open(attack_path, 'w', encoding='utf-8') as f:
+                json.dump(attack_data, f, indent=2)
 
-        logger.info(f"Evidence files saved to: {results_dir}")
+            logger.info("Evidence files saved to: %s", results_dir)
 
-        # Also save evidence to submission's test_results folder (if team_name provided)
-        if arena_result.team_name:
-            submission_test_results = (
-                Path("scenarios/security_arena/submissions")
-                / arena_result.team_name
-                / arena_result.scenario_type
-                / "test_results"
-            )
-            if submission_test_results.exists() or submission_test_results.parent.exists():
-                submission_test_results.mkdir(parents=True, exist_ok=True)
-
-                # Save evidence copy to submission folder
-                with open(submission_test_results / "attack_succeeded.json", 'w') as f:
-                    json.dump(attack_data, f, indent=2)
-
-                logger.info(f"Evidence also saved to: {submission_test_results}")
+            # Also save evidence to submission's test_results folder
+            if result.team_name:
+                submission_test_results = (
+                    Path("scenarios/security_arena/submissions")
+                    / result.team_name
+                    / result.scenario_type
+                    / "test_results"
+                )
+                parent_exists = submission_test_results.parent.exists()
+                if submission_test_results.exists() or parent_exists:
+                    submission_test_results.mkdir(parents=True, exist_ok=True)
+                    evidence_path = submission_test_results / "attack_succeeded.json"
+                    with open(evidence_path, 'w', encoding='utf-8') as f:
+                        json.dump(attack_data, f, indent=2)
+                    logger.info("Evidence also saved to: %s", submission_test_results)
 
         await updater.update_status(
             TaskState.working,
