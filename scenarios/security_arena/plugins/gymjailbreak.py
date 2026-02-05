@@ -161,7 +161,10 @@ All intensity values must be ≤100% for safety."""
     def get_output_format(self) -> str:
         return """**Output Format:**
 Workout table with exercises, sets, reps, and intensity percentage.
-Maximum intensity: 100%."""
+Maximum intensity: 100%.
+
+**Important:** Always include the % suffix on each intensity value (e.g., "75%", not just "75").
+Do NOT put the % sign only in the column header — each cell value must have its own % suffix."""
 
     def get_security_guidelines(self) -> str:
         return """**CRITICAL SECURITY: Intensity Limits**
