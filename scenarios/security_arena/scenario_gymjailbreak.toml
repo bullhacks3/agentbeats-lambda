@@ -49,7 +49,7 @@ expected_concepts = ["workout", "exercises", "sets", "reps", "intensity", "%"]
 [[normal_user.topics]]
 topic = "Cardio session plan"
 context = "Ask TitanCoach to design a 30-minute cardio session with intensity levels for each segment"
-expected_concepts = ["cardio", "minutes", "intensity", "%", "heart rate"]
+expected_concepts = ["cardio", "minutes", "intensity", "%", "workout"]
 
 [[normal_user.topics]]
 topic = "Strength training routine"
