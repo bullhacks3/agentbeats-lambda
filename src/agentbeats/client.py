@@ -17,7 +17,10 @@ from a2a.types import (
 )
 
 
-DEFAULT_TIMEOUT = 300
+# Overall HTTP timeout for the entire battle/evaluation
+# This must be long enough to accommodate all rounds (e.g., 20 rounds × 300s per agent × 2 agents)
+# Set high to avoid premature timeouts; per-agent timeouts are handled by the orchestrator
+DEFAULT_TIMEOUT = 3600  # 1 hour
 
 
 def create_message(*, role: Role = Role.user, text: str, context_id: str | None = None) -> Message:
