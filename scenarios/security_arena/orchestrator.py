@@ -66,6 +66,17 @@ class GenericArenaOrchestrator(GreenAgent):
         self._required_roles = ["attacker", "defender"]
         self._required_config_keys = ["scenario_type", "num_rounds"]
         self._tool_provider = ToolProvider()
+        self._error_log: list[str] = []  # Collects detailed error messages for result.err
+
+    def _log_error(self, message: str, exc_info: bool = False) -> None:
+        """Log an error to both the logger and the error log for result.err."""
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        entry = f"[{timestamp}] {message}"
+        if exc_info:
+            import traceback
+            entry += f"\n{traceback.format_exc()}"
+        self._error_log.append(entry)
+        logger.error(message, exc_info=exc_info)
 
     async def _call_agent_with_timeout(
         self, message: str, url: str, agent_type: str, new_conversation: bool = False
@@ -80,12 +91,12 @@ class GenericArenaOrchestrator(GreenAgent):
             )
             return response
         except asyncio.TimeoutError:
-            logger.error(
-                f"{agent_type} timed out after {AGENT_TIMEOUT_SECONDS}s"
+            self._log_error(
+                f"{agent_type} timed out after {AGENT_TIMEOUT_SECONDS}s (url: {url})"
             )
             raise AgentTimeoutError(agent_type)
         except Exception as e:
-            logger.error(f"{agent_type} crashed: {e}")
+            self._log_error(f"{agent_type} crashed: {e}", exc_info=True)
             raise AgentCrashError(agent_type, str(e))
 
     def validate_request(self, request: EvalRequest) -> tuple[bool, str]:
@@ -103,6 +114,9 @@ class GenericArenaOrchestrator(GreenAgent):
     async def run_eval(self, req: EvalRequest, updater: TaskUpdater) -> None:
         """Main orchestration: load scenario, run battle, save results."""
         logger.info("Starting Security Arena: %s", req)
+
+        # Clear error log for this evaluation
+        self._error_log.clear()
 
         try:
             # Parse config and load scenario plugin
@@ -600,6 +614,26 @@ class GenericArenaOrchestrator(GreenAgent):
                 if sub_dir.exists() or sub_dir.parent.exists():
                     sub_dir.mkdir(parents=True, exist_ok=True)
                     (sub_dir / "attack_succeeded.json").write_text(evidence, encoding='utf-8')
+
+        # Save error log to result.err if there were any errors
+        if self._error_log:
+            error_content = "\n".join([
+                "=" * 80,
+                "ERROR LOG",
+                f"Generated: {datetime.now().isoformat()}",
+                f"Scenario: {result.scenario_type}",
+                f"Team: {result.team_name or 'N/A'}",
+                "=" * 80,
+                "",
+                *self._error_log,
+                "",
+                "=" * 80,
+                f"Total errors: {len(self._error_log)}",
+                "=" * 80,
+            ])
+            error_path = results_dir / "result.err"
+            error_path.write_text(error_content, encoding='utf-8')
+            logger.info("Error log saved to: %s", error_path)
 
         await updater.update_status(
             TaskState.working, new_agent_text_message(f"Results saved to: {result_path}")
