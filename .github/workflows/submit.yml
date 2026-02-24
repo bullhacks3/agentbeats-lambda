@@ -1,0 +1,35 @@
+name: Submit Solution
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  submit-attacker:
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, '[submit]') || contains(github.event.head_commit.message, '[submit-attacker]')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Submit Attacker
+        uses: LambdaLabsML/agentbeats-submission-action@main
+        with:
+          api_key: ${{ secrets.COMPETITION_API_KEY }}
+          role: 'attacker'
+          submission_path: './scenarios/security_arena/agents/attacker'
+
+  submit-defender:
+    runs-on: ubuntu-latest
+    if: contains(github.event.head_commit.message, '[submit]') || contains(github.event.head_commit.message, '[submit-defender]')
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Submit Defender
+        uses: LambdaLabsML/agentbeats-submission-action@main
+        with:
+          api_key: ${{ secrets.COMPETITION_API_KEY }}
+          role: 'defender'
+          submission_path: './scenarios/security_arena/agents/defender'
