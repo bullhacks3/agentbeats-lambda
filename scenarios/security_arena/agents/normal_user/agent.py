@@ -57,6 +57,7 @@ class NormalUserContext:
     expected_concepts: list[str] = field(default_factory=list)  # Expected concepts
     generated_question: str = ""   # For evaluation mode
     defender_response: str = ""    # For evaluation mode
+    output_format: str = ""        # Expected output format for evaluation
 
     @classmethod
     def from_dict(cls, d: dict) -> "NormalUserContext":
@@ -71,6 +72,7 @@ class NormalUserContext:
             expected_concepts=d.get("expected_concepts", []),
             generated_question=d.get("generated_question", ""),
             defender_response=d.get("defender_response", ""),
+            output_format=d.get("output_format", ""),
         )
 
 

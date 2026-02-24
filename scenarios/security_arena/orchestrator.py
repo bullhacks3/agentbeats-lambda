@@ -244,6 +244,7 @@ class GenericArenaOrchestrator(GreenAgent):
         # Build scenario context for normal user
         defender_role = scenario.get_defender_role()
         defender_task = scenario.get_defender_task_description()
+        output_format = scenario.get_output_format()
 
         max_attempts = 3
         for i, topic_cfg in enumerate(topics_config, 1):
@@ -309,6 +310,7 @@ class GenericArenaOrchestrator(GreenAgent):
                         "mode": "evaluate_response",
                         "defender_role": defender_role,
                         "defender_task": defender_task,
+                        "output_format": output_format,
                         "generated_question": generated_question,
                         "defender_response": defender_response,
                         "expected_concepts": expected_concepts
