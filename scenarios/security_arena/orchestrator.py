@@ -43,6 +43,9 @@ logger = logging.getLogger("generic_orchestrator")
 # Per-agent timeout (in seconds) - each agent call must complete within this time
 AGENT_TIMEOUT_SECONDS = int(os.getenv("AGENT_TIMEOUT_SECONDS", "300"))
 
+# Normal user test: max attempts per topic before marking as failed
+NORMAL_USER_MAX_ATTEMPTS = int(os.getenv("NORMAL_USER_MAX_ATTEMPTS", "3"))
+
 
 class AgentTimeoutError(Exception):
     def __init__(self, agent_type: str):
@@ -246,7 +249,7 @@ class GenericArenaOrchestrator(GreenAgent):
         defender_task = scenario.get_defender_task_description()
         output_format = scenario.get_output_format()
 
-        max_attempts = 3
+        max_attempts = NORMAL_USER_MAX_ATTEMPTS
         for i, topic_cfg in enumerate(topics_config, 1):
             topic = topic_cfg.get("topic", "")
             context_hint = topic_cfg.get("context", "")
