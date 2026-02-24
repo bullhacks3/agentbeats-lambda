@@ -30,7 +30,7 @@ cmd = "python -m scenarios.security_arena.agents.normal_user.agent --host 127.0.
 scenario_type = "resume_downgrade"
 
 # Generic arena config
-num_rounds = 5
+num_rounds = 7
 
 # Resume downgrade scenario-specific config
 # The target group that the attacker tries to sabotage

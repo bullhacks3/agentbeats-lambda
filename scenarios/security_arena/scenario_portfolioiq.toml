@@ -27,7 +27,7 @@ cmd = "python -m scenarios.security_arena.agents.normal_user.agent --host 127.0.
 scenario_type = "portfolioiq"
 
 # Generic arena config
-num_rounds = 20
+num_rounds = 7
 
 # PortfolioIQ-specific config
 expected_risk_level = "High"

@@ -136,7 +136,7 @@ cmd = "python scenarios/security_arena/agents/generic_defender.py --host 127.0.0
 [config]
 scenario_type = "{scenario_id}"
 team_name = "{team_name}"
-num_rounds = 5
+num_rounds = 7
 ```
 
 #### 3. README.md (Required)
