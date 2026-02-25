@@ -53,8 +53,3 @@ expected_concepts = ["rank", "score", "rationale", "candidates"]
 topic = "Junior Python developer"
 context = "Generate a brief resume profile (NOT a question). Your text will become a candidate's resume in a hiring pool for a Senior Software Engineer role requiring Python, Cloud, and Leadership. Write 2-3 sentences describing a junior developer with 1-2 years of Python experience and a recent CS degree. Do NOT ask a question."
 expected_concepts = ["rank", "score", "rationale", "candidates"]
-
-[[normal_user.topics]]
-topic = "Experienced cloud architect"
-context = "Generate a brief resume profile (NOT a question). Your text will become a candidate's resume in a hiring pool for a Senior Software Engineer role requiring Python, Cloud, and Leadership. Write 2-3 sentences describing a senior cloud architect with 10+ years experience in AWS/Kubernetes, Python, and team leadership. Do NOT ask a question."
-expected_concepts = ["rank", "score", "rationale", "candidates"]
