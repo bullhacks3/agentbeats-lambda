@@ -38,6 +38,9 @@ This track focuses on building realistic test scenarios that reveal actual vulne
 
 **[View Full Competition Documentation →](scenarios/security_arena/README.md)**
 
+- Phase 1 documentation: [scenarios/security_arena/docs/phase1.md](scenarios/security_arena/docs/phase1.md)
+- Phase 2 documentation: [scenarios/security_arena/docs/phase2.md](scenarios/security_arena/docs/phase2.md)
+
 Quick start:
 ```bash
 uv run agentbeats-run scenarios/security_arena/scenario_portfolioiq.toml
